@@ -9,6 +9,8 @@ from nltk.stem import PorterStemmer
 from nltk.util import bigrams
 from collections import Counter
 import random
+from math import log
+import pickle
 
 #extract dat from URLS in txt file into individual txt files
 def directoryExtract(directories_list, directories_loc):
@@ -26,7 +28,6 @@ def directoryExtract(directories_list, directories_loc):
                 fileLocation = directories_loc + cleanURL
                 text = soup.get_text()
                 text = text.replace('\r', ' ').replace('\n', ' ')
-                print(fileLocation)
                 with open(fileLocation, "w+") as newDir:
                     newDir.write(text)
             except Exception as e:
@@ -38,9 +39,7 @@ def universityExtract(universities_list, universities_loc):
         for universityURL in universityFile:
             try:
                 universityURL = universityURL.replace('\r', '').replace('\n', '')
-                print(universityURL)
                 r = requests.get(universityURL)
-                print(r)
                 html = r.content
             except Exception as e:
                 print(e)
@@ -51,11 +50,32 @@ def universityExtract(universities_list, universities_loc):
                 fileLocation = universities_loc + cleanURL
                 text = soup.get_text()
                 text = text.replace('\r', ' ').replace('\n', ' ')
-                print(fileLocation)
                 with open(fileLocation, "w+") as newDir:
                     newDir.write(text)
             except Exception as e:
                 print(e)
+
+#initalize webpage for testing
+def initTest(testPage, lowerCase, stemming):
+    try:
+        r = requests.get(testPage)
+        html = r.content
+    except:
+        print("Bad URL", testPage)
+
+    soup = BeautifulSoup(html, 'html.parser')
+    text = soup.get_text()
+    text = text.replace('\r', ' ').replace('\n', ' ')
+    page = RegexpTokenizer('\w+').tokenize(text)
+    if lowerCase:
+        for i, word in enumerate(page):
+            page[i] = PorterStemmer().stem(word)
+    if stemming:
+        for i, word in enumerate(page):
+            page[i] = PorterStemmer().stem(word)
+    page = bigrams(page)
+    return page
+    
 
 #initalize words for classifier
 def initWords(stemming, lowerCase, directoryFolder, universityFolder, testModel):
@@ -107,14 +127,15 @@ def initWords(stemming, lowerCase, directoryFolder, universityFolder, testModel)
     return trainDirectory, testDirectory, trainUniversity, testUniversity
 
 #train bigram bag of words model
-def modelTrain(trainDirectory, trainUniversity):
+def modelTrain(trainDirectory, trainUniversity, modelLoc):
     dirBigramCount = Counter()
     bigramDirectoryNum = 0
     for document in trainDirectory:
         docBigrams = bigrams(document)
         docBigramCount = Counter(docBigrams)
         dirBigramCount += docBigramCount
-        bigramDirectoryNum += docBigramCount.total()
+        bigramDirectoryNum += sum(docBigramCount.values())
+    dirBigramDict = dict(dirBigramCount)
 
     uniBigramCount = Counter()
     bigramUniversityNum = 0
@@ -122,37 +143,64 @@ def modelTrain(trainDirectory, trainUniversity):
         docBigrams = bigrams(document)
         docBigramCount = Counter(docBigrams)
         uniBigramCount += docBigramCount
-        bigramUniversityNum += docBigramCount.total()
-
-    print(dirBigramCount)
-    print(bigramDirectoryNum)
-    print(uniBigramCount)
-    print(bigramUniversityNum)
+        bigramUniversityNum += sum(docBigramCount.values())
+    uniBigramDict = dict(uniBigramCount)
     
-def modelTest(testDirectory, testUniversity):
-    print("TestModel")
+    for bigram in dirBigramDict:
+        uniBigramDict[bigram] = uniBigramDict.get(bigram, 0)
+
+    for bigram in uniBigramCount:
+        dirBigramDict[bigram] = dirBigramDict.get(bigram, 0)
+
+    diffBigramDict = {}
+    for bigram in dirBigramDict:
+        bigramDirValue = log(dirBigramDict[bigram] + 1) / (uniBigramCount[bigram] + 1)
+        bigramUniValue = log((len(trainUniversity)/len(trainDirectory)) * (uniBigramCount[bigram] + 1) / (dirBigramDict[bigram] + 1))
+        dirBigramDict[bigram] = bigramDirValue 
+        uniBigramDict[bigram] = bigramUniValue
+        diffBigramDict[bigram] = bigramDirValue - bigramUniValue
+
+    with open(modelLoc + ".pickle", "wb+") as newFile:
+        pickle.dump(diffBigramDict, newFile)
+
+#test webpage on trained model
+def modelTest(testDirectory, testUniversity, modelLoc):
+    model = {}
+    with open(modelLoc + ".pickle", 'rb') as fileLoc:
+        model = pickle.load(fileLoc)
+
+    if len(testUniversity) != 0 and len(testDirectory) != 1:
+        return
+    
+    DirectoryScore = 0
+    for word in testDirectory:
+        DirectoryScore += model.get(word, 0)
+
+    if DirectoryScore > 0:
+        print("Classified as Directory Page")
+    else:
+        print("Classified as NOT a Directory Page")
 
 #work alongside options to call correct functions
-def main(testPage, testDir, stemming, lowerCase, createModel, testModel, extractDirectory, extractUniversity, universityURLs, directoryURLs, universityFolder, directoryFolder):
+def main(testPage, testDir, stemming, lowerCase, createModel, testModel, extractDirectory, extractUniversity, universityURLs, directoryURLs, universityFolder, directoryFolder, modelLoc):
     if (extractDirectory):
         directoryExtract(directoryURLs, directoryFolder)
     if (extractUniversity):
         universityExtract(universityURLs, universityFolder)
     if (createModel):
         trainDirectory, testDirectory, trainUniversity, testUniversity = initWords(stemming, lowerCase, directoryFolder, universityFolder, testModel)
-        modelTrain(trainDirectory, trainUniversity)
+        modelTrain(trainDirectory, trainUniversity, modelLoc)
         if (testModel):
-            modelTest(testDirectory, testUniversity)
+            modelTest(testDirectory, testUniversity, modelLoc)
         
     if (testDir):
-        modelTest(testPage, [])
-    
-
-
+        testPage = initTest(testPage, lowerCase, stemming)
+        modelTest(testPage, [], modelLoc)
+        
 #option set
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('testPage', metavar='testPage', type=str, nargs='?', default='google.com', help='page to test against the model')
+    parser.add_argument('testPage', metavar='testPage', type=str, nargs='?', default='https://www.google.com/', help='page to test against the model')
     parser.add_argument('--testDir', action="store_false", help = 'do not test a directory page against the model')
     parser.add_argument('--stemming', action="store_false", help = 'word stemming')
     parser.add_argument('--lowerCase', action="store_false", help = 'convert all words to lower case')
@@ -164,5 +212,6 @@ if __name__ == "__main__":
     parser.add_argument('-directoryURLs', type=str, default='faculty_directories.txt', help='Text file to extract directory urls from')
     parser.add_argument('-universityFolder', type=str, default='university_files/', help='Folder to save extracted university pages to')
     parser.add_argument('-directoryFolder', type=str, default='directory_files/', help='Folder to save extracted directory pages to')
+    parser.add_argument('-modelLoc', type=str, default='model', help='location of model')
     args = parser.parse_args()
-    main(args.testPage, args.testDir, args.stemming, args.lowerCase, args.createModel, args.testModel, args.extractDirectory, args.extractUniversity, args.universityURLs, args.directoryURLs, args.universityFolder, args.directoryFolder)
+    main(args.testPage, args.testDir, args.stemming, args.lowerCase, args.createModel, args.testModel, args.extractDirectory, args.extractUniversity, args.universityURLs, args.directoryURLs, args.universityFolder, args.directoryFolder, args.modelLoc)
