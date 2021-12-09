@@ -2,7 +2,6 @@ import argparse
 import requests
 from bs4 import BeautifulSoup
 import re
-import numpy as np
 import os
 from nltk.tokenize import RegexpTokenizer
 from nltk.stem import PorterStemmer
@@ -177,7 +176,7 @@ def modelTest(testDirectory, testUniversity, modelLoc):
         DirectoryScore += model.get(word, 0)
 
     if DirectoryScore > 0:
-        print("Classified as Directory Page")
+        print("Classified as a Directory Page")
     else:
         print("Classified as NOT a Directory Page")
 
@@ -196,7 +195,7 @@ def main(testPage, testDir, stemming, lowerCase, createModel, testModel, extract
     if (testDir):
         testPage = initTest(testPage, lowerCase, stemming)
         modelTest(testPage, [], modelLoc)
-        
+
 #option set
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
