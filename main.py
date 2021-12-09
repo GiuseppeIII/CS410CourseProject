@@ -11,7 +11,7 @@ import random
 from math import log
 import pickle
 
-#extract dat from URLS in txt file into individual txt files
+#extract data from URLS in txt file into individual txt files
 def directoryExtract(directories_list, directories_loc):
     with open(directories_list, 'r') as directoryFile:
         for directoryURL in directoryFile:
