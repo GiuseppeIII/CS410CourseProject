@@ -1,1 +1,1 @@
-##### CourseProject
+#### FacultyDirectoryPredictor
